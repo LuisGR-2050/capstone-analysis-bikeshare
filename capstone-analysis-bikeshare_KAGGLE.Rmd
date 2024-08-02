@@ -101,7 +101,13 @@ td_Year  <- read_csv(c("/kaggle/input/2023-divvy-tripdata/202301-divvy-tripdata.
                        "/kaggle/input/2023-divvy-tripdata/202303-divvy-tripdata.csv",
                        "/kaggle/input/2023-divvy-tripdata/202304-divvy-tripdata.csv",
                        "/kaggle/input/2023-divvy-tripdata/202305-divvy-tripdata.csv",
-                       "/kaggle/input/2023-divvy-tripdata/202306-divvy-tripdata.csv"))
+                       "/kaggle/input/2023-divvy-tripdata/202306-divvy-tripdata.csv",
+                       "/kaggle/input/2023-divvy-tripdata/202307-divvy-tripdata.csv",
+                       "/kaggle/input/2023-divvy-tripdata/202308-divvy-tripdata.csv",
+                       "/kaggle/input/2023-divvy-tripdata/202309-divvy-tripdata.csv",
+                       "/kaggle/input/2023-divvy-tripdata/202310-divvy-tripdata.csv",
+                       "/kaggle/input/2023-divvy-tripdata/202311-divvy-tripdata.csv",
+                       "/kaggle/input/2023-divvy-tripdata/202312-divvy-tripdata.csv"))
 # summarize function
 summary(td_Year)
 ```
