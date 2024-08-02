@@ -1,0 +1,581 @@
+---
+title: "Bikeshare Analysis - Capstone Project"
+author: "Luis Garcia-Ramirez"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    #number_sections: true
+    code_folding: show
+---
+# Introduction
+Built with RStudio v`r getRversion()`
+
+```{r chunks, include = FALSE}
+knitr::opts_chunk$set(message = FALSE)
+```
+
+This R markdown document was created as a capstone project for a [Google Data Analytics Professional Certificate course](https://www.coursera.org/programs/yoloworks-grow-with-google-lnylv/professional-certificates/google-data-analytics) offered online through Coursera. The data used in this document is available for free use under [this data license agreement](https://divvybikes.com/data-license-agreement).
+
+What follows is an analysis of ride share data with the goal of finding patterns that differentiate casual users of the service (who pay a per-minute fee) from members of the service (who pay an annual fee), in an effort to create a marketing campaign that would target casual users and persuade them to purchase a membership for this ride share service.
+
+The scope for this analysis will be ride share data from a single year -- 2023. All relevant ride share data was collected in Chicago, IL. The resulting data set is very large (5.7 million rows, 1.07 GB CSV file), which is the primary reason RStudio has been chosen for this project over a spreadsheet application.
+
+### Library Import
+
+Before the analysis can begin, the relevant R packages & libraries need to be loaded into the environment for this analysis.
+
+```{r setup}
+#tidyverse
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(readr)
+# working with datetime date
+library(lubridate)
+library(hms)
+# data cleaning
+library(skimr)
+library(janitor)
+# documentation features
+library(rmarkdown)
+library(knitr)
+```
+
+## Partial Data Set Analysis
+
+The data set is packaged by individual months, therefore all twelve data sets from January through December must be downloaded to have all of the data from the target year. However, prior to the full download, it would be prudent to analyze an individual file from a single month to become more familiar the features of the data set without having to process the full years' worth of data.
+
+Let’s download the first file and have a peek at the first few lines of data, as well as all of the field names.
+
+```{r column-names-check}
+td_Jan <- read_csv("csv_files/202301-divvy-tripdata.csv")
+kable(head(td_Jan))
+colnames(td_Jan)
+```
+
+It can be noted the data is sorted not chronologically, but that won’t be an issue for this analysis. We can also see there are 2 fields with discrete values: **rideable_type** and **member_casual**. The `unique` function can be used to find all possible options for these categories while simultaneously checking if there are any missing values.
+
+```{r unique-values-check}
+unique(td_Jan$rideable_type)
+unique(td_Jan$member_casual)
+```
+
+There are two categories for **member_casual**, as expected, to differentiate users with active memberships to the service and users who pay on a per-minute basis or pay for day-use passes (*i.e.* casual users).
+
+There are three categories for **rideable_type** to differentiate which type of bike users are renting for the service. After further research, it was found the ride share company previously only offered mechanical bikes that were all categorized as a *docked_bike*. After the introduction of the electric bike to their fleet, the **rideable_type** column was introduced to the data set and newer mechanical bikes were categorized as *classic_bike* while the older mechanical bikes remained categorized as *docked_bike*. Knowing this information, we can deduce all trip data in the *docked_bike* category can be considered a *classic_bike* for the purposes of this analysis.
+
+The unique function would have also provided an *NA* option in the result if there was any missing data in these fields. It can be deduced there are no missing values in these fields based on these function outputs.
+
+Now the date time data should be verified to be in the correct format.
+
+```{r format-check}
+class(td_Jan$started_at)
+class(td_Jan$ended_at)
+```
+
+It can be seen here that the **started_at** and **ended_at** columns are in an appropriate datetime format. The format (POSIXct) for these columns stores the date as the number of seconds since 1970-01-01 00:00:00.
+
+Now the data set should be checked for missing values.
+
+```{r missing-values-check}
+# count missing values in all columns of data set
+colSums(is.na(td_Jan))
+# count of rows with missing values divided by all rows
+nrow(td_Jan[is.na(td_Jan$end_station_name),])/nrow(td_Jan) * 100
+```
+
+The output indicates that about 14% of rows are missing values. However, all the missing data appears to be in exclusively location-related fields. Further research reveals this was done intentionally to protect user data. The rows with missing values can still be utilized to analyze user patterns with regard to travel time and bike type usage.
+
+After analyzing a portion of the entire data set, the remainder of the files from 2023 can be downloaded from the original firsthand [source](https://divvy-tripdata.s3.amazonaws.com/index.html) and merged into a single data frame.
+
+## Full Data Frame Creation
+
+With the CSV files in a local repository and accessible within RStudio, an individual data frame can be created from merging all twelve months of data to represent the full year of 2023. The `summary` function can be utilized to ensure the resulting data frame looks as expected.
+
+```{r data-frame-creation}
+# 2023 data set creation
+td_Year  <- read_csv(c("csv_files/202301-divvy-tripdata.csv", "csv_files/202302-divvy-tripdata.csv", 
+                       "csv_files/202303-divvy-tripdata.csv", "csv_files/202304-divvy-tripdata.csv", 
+                       "csv_files/202305-divvy-tripdata.csv", "csv_files/202306-divvy-tripdata.csv", 
+                       "csv_files/202307-divvy-tripdata.csv", "csv_files/202308-divvy-tripdata.csv", 
+                       "csv_files/202309-divvy-tripdata.csv", "csv_files/202310-divvy-tripdata.csv", 
+                       "csv_files/202311-divvy-tripdata.csv", "csv_files/202312-divvy-tripdata.csv"))
+# summarize function
+summary(td_Year)
+```
+
+From the summary output it can be seen the data represents the full year, as indicated by the **MIN** and **MAX** results of the **started_at** and **ended_at** fields. This new table can also be seen to contain 5.7 million rows of data.
+
+# Data Cleaning
+
+Now with the full data set stored in a single table, the data cleaning will be a faster process. As noted earlier, the data has a significant amount of rows with missing location information (15%). However, the datetime data from these rows can and should still be utilized in this analysis. A new row can be added to the data set to determine the length of each trip by calculating the difference between the **started_at** and **ended_at** fields.
+
+```{r ride-length-column}
+# adding ride length column
+td_Year <- mutate(td_Year, ride_length = as_hms(ended_at - started_at))
+```
+
+## Data Filtering
+
+The new **ride_length** column can be immediately utilized to remove outliers. First, we can filter out trip lengths under 60 seconds and assume these trips were false starts or user error.
+
+Dev note: later in my analysis, it was found the original data set had 1,269 rows with **ride_length** values less than 1 second. Of these, 272 rows were found to have negative ride length times and 4 rows had ride length times with a value of negative 270 minutes implying the possibility of a programming error when this data was collected.
+
+Additionally, filtering out the rows with ride length times over 24 hours will avoid large deviations in our data from outliers.
+
+Lastly, this is a good opportunity to replace all the *docked_bike* values with *classic_bike*. As noted earlier, rows with the *docked_bike* value represent an older fleet of classic (*i.e.* mechanical) bikes. The more relevant distinction in the **rideable_type** (*i.e.* bike type) field is classic bike vs electric bike, since they have a different price range for rental and distinct functionality.
+
+```{r ride-length-filter}
+# standard deviation check
+round_hms(as_hms(sd(td_Year$ride_length)), 1)
+# filtering out short ride lengths
+td_Year <- filter(td_Year, ride_length > as_hms("00:00:59"))
+# standard deviation with short rides removed
+round_hms(as_hms(sd(td_Year$ride_length)), 1)
+# filtering out long ride lengths
+td_Year <- filter(td_Year, ride_length < as_hms("23:59:59"))
+# standard deviation with short and long rides removed
+round_hms(as_hms(sd(td_Year$ride_length)), 1)
+# replacing 'docked_bike' values
+td_Year$rideable_type[td_Year$rideable_type == "docked_bike"] <- "classic_bike"
+# verifying update
+unique(td_Year$rideable_type)
+```
+
+Filtering out the short trip lengths (<60 seconds) results in a loss of ~150,000 rows, or 2.6% of the data set. There’s also a small upward trend in the standard deviation, as expected, from **3H 0M 51S** up to **3H 2M 35S**.
+
+Filtering out the long trip lengths (>24 hours) results in a loss of ~6,500 rows, or 0.11% of the data set. As seen by the enormous change in the standard deviation, it was worthwhile to remove this small portion of the data set. From **3H 2M 35S** down to **0H 32M 8S**.
+
+Following these steps, the data is ready for further analysis.
+
+# Data Analysis
+
+The main category we are focusing on is membership status. A reminder that the **goal** of this analysis is to understand how casual riders and annual members use the ride share service differently.
+
+## Userbase Analysis {.tabset}
+
+Let's start with some basic questions:
+
+* Of all the bike rentals in 2023, how many were from members and how many were from casual riders?
+* What was the average ride length for casual riders? How about members?
+* What was the mode, or the most common, ride times for casual riders? How about members?
+
+### Number of rides
+
+```{r userbase-stats-pie, echo = FALSE}
+# calculating freq table based on user
+td_Pie <- td_Year %>% 
+  tabyl(member_casual) %>% 
+  adorn_pct_formatting(digits = 2)
+
+# creating pie chart for member rentals vs casual rider rentals
+ggplot(data = td_Pie, aes(x = "", y = n, fill = member_casual)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  theme_void() +
+  labs(title = "Number of rides by user")
+
+#showing numbers behind pie
+kable(td_Pie, caption = "Number of rides by user", 
+      col.names = c('User', 'Count', 'Percent'),
+      format.args = list(big.mark = ","))
+```
+
+### Avg ride length
+
+```{r userbase-stats-bar, echo = FALSE}
+# calculating average based on user
+td_Bar <- td_Year %>%
+  group_by(member_casual) %>% 
+  summarise(mean = round_hms(as_hms(mean(ride_length)), 1))
+
+# creating the bar plot for 'Average ride length, members vs casual'
+ggplot(data = td_Bar) +
+  geom_col(mapping = aes(x = member_casual, y = mean, fill = member_casual)) +
+  labs(x = "User",  y = "Avg Ride Length", title = "Avg ride length by user")
+
+# showing numbers behind bar chart
+kable(td_Bar, caption = "Avg ride length by user",
+      col.names = c('User', 'Avg Ride Length'))
+
+# calculating new averages for histogram
+td_Hst <- td_Year %>%
+  filter(ride_length < as_hms("00:30:00")) %>% 
+  group_by(member_casual) %>% 
+  summarise(mean = round_hms(as_hms(mean(ride_length)), 1))
+```
+
+### Ride length distribution
+
+```{r userbase-stats-hist, echo = FALSE}
+# histogram plot
+td_Year %>% 
+  filter(ride_length < as_hms("00:30:00")) %>%
+  ggplot(aes(x = ride_length, fill = member_casual, color = member_casual)) +
+  geom_histogram(binwidth = 30, boundary = 30, alpha = 0.1, position = "dodge2") +
+  geom_vline(data = td_Hst, aes(xintercept = mean, color = member_casual), linetype = "dashed", linewidth = 1) +
+  labs(x = 'Ride Length (sec)', y = 'Count', title = 'Ride length distribution')
+
+ # freq table for ride lengths, filtered to members
+fq_rdM <- td_Year %>%
+  filter(ride_length < as_hms("00:30:00")) %>%
+  filter(member_casual == "member") %>%
+  tabyl(ride_length, show_na = FALSE, show_missing_levels = FALSE) %>% 
+  adorn_pct_formatting(digits = 3) %>% 
+  arrange(-n) %>% 
+  head(n = 5)
+
+ # freq table for ride lengths, filtered to casual users
+fq_rdC <- td_Year %>%
+  filter(ride_length < as_hms("00:30:00")) %>%
+  filter(member_casual == "casual") %>%
+  tabyl(ride_length, show_na = FALSE, show_missing_levels = FALSE) %>% 
+  adorn_pct_formatting(digits = 3) %>% 
+  arrange(-n) %>% 
+  head(n = 5)
+
+# showing numbers behind histogram
+kable(td_Hst, caption = "Avg ride length for trips < 30 min",
+      col.names = c('User', 'Avg Ride Length'))
+kable(fq_rdM, caption = "Most common trip lengths for MEMBERS", 
+      col.names = c('Ride Length', 'Count', 'Percent'),
+      format.args = list(big.mark = ","))
+kable(fq_rdC, caption = "Most common trip lengths for CASUAL USERS", 
+      col.names = c('Ride Length', 'Count', 'Percent'),
+      format.args = list(big.mark = ","))
+```
+
+## {.unlisted .unnumbered}
+
+#### Comments on userbase stats
+
+Here we can see members make up a significant portion of all rides – **64%**. This is expected, since members can take advantage of 45 minutes of free ride time with the membership and are already paying for the service. Perhaps more surprisingly, we can also see that the average ride length for a casual rider is **70%** longer when compared to a member (21 minutes for casual users vs 12 minutes for members). Since many of these users are paying on a per-minute basis, it would be expected that members are taking advantage of the lower per-minute prices by taking longer rides. However, this can likely be accounted for when we consider the day pass option for casual users, which provides 3 hours of ride time before having to pay for additional time.
+
+Based off the histogram and the mean line, it’s apparent most users are taking rides shorter than 20 minutes. Calculations indicate that about **80%** of all trips, including both members and casual users, are less than 20 minutes in length. The vertical lines represent the mean for each group when only accounting for ride length times under 30 minutes - the data represented on the histogram. There’s also an observable gap in the 0-60 second portion of the histogram as a result of the filtering done in the previous step.
+ 
+## Data Set Mutation
+
+At this point, two new columns can be added to the data frame for continued analysis - **day_of_week** and **month** - using data from the **started_at** field.
+
+```{r day-month-columns}
+td_Year <- mutate(td_Year, day_of_week = wday(started_at, label = TRUE))
+td_Year <- mutate(td_Year, month = month(started_at, label = TRUE))
+```
+
+## Day-to-Day Patterns {.tabset}
+
+With these new columns, the data can be parsed and summarized in new ways to determine patterns around day-to-day and month-to-month ride share usage.
+
+* Are there any changes in user habits throughout the different days of the week?
+* Are there any changes in user habits throughout the different months/seasons of the year?
+
+### Number of rides
+
+```{r daily-stats-1, echo = FALSE}
+# creating bar plot for 'Number of rides, day of the week'
+ggplot(data = td_Year) +
+  geom_bar(mapping = aes(x = day_of_week, fill = day_of_week)) +
+  labs(x = "Day of the Week", y = "Count", title = "Number of rides by day of week")
+```
+
+### Number of rides, by user
+
+```{r daily-stats-2, echo = FALSE}
+# creating bar plot for 'Number of rides, day of the week & user'
+ggplot(data = td_Year) +
+  geom_bar(mapping = aes(x = day_of_week, fill = day_of_week)) +
+  facet_wrap(~member_casual) +
+  labs(x = "Day of the Week", y = "Count", title = "Number of rides by day of week & user")
+```
+
+### Avg ride length
+
+```{r daily-stats-3, echo = FALSE}
+# calculating average based on day of week
+td_AvgD <- td_Year %>%
+  group_by(day_of_week) %>% 
+  summarise(mean = round_hms(as_hms(mean(ride_length)), 1))
+
+# creating bar plot for 'Average ride length, day of the week'
+ggplot(data = td_AvgD) +
+  geom_col(mapping = aes(x = day_of_week, y = mean, fill = day_of_week)) +
+  labs(x = "Day of the Week", y = "Avg Ride Length", title = "Avg ride length by day of week")
+```
+
+### Avg ride length, by user
+
+```{r daily-stats-4, echo = FALSE}
+# calculating average based on day of week & user  
+td_AvgDM <- td_Year %>%
+  group_by(member_casual, day_of_week) %>% 
+  summarise(mean = round_hms(as_hms(mean(ride_length)), 1)) %>% 
+  ungroup()
+
+# creating bar plot for 'Average ride length, day of week & user'
+ggplot(data = td_AvgDM) +
+  geom_col(mapping = aes(x = day_of_week, y = mean, fill = day_of_week)) +
+  facet_wrap(~member_casual) +
+  labs(x = "Day of the Week", y = "Avg Ride Length", title = "Avg ride length by day of week & user")
+```
+
+## {.unlisted .unnumbered}
+
+#### Comments on day-to-day patterns
+
+There’s not much variation of riding patterns overall in terms of the day-to-day number of rides. Although it is worth noting Saturday is the most popular day for rentals while Monday is the least popular. When this data is broken down by users, some interesting patterns emerge.
+
+Looking at the number of rides, it’s evident that casual riders take more rides on weekends (Sat & Sun), while members take most of their rides in the middle of the week (Tue-Thu). Calculations indicate casual riders take **36%** (over 1/3) of their rides on Sat & Sun, compared to **24%** for members. While members take **48%** (almost 1/2) of their rides on Tue, Wed & Thu, compared to **37%** for casual riders.
+
+Looking at average ride lengths, the daily average for each week day is around 14-15 minutes, while the daily average for weekends is slightly higher at just over 18 minutes. When broken down by membership status, it’s evident that casual riders are consistently taking longer rides throughout the week when compared to membership holders. This can likely be accounted for with the daily pass option that casual users have, in which they can prepay for 3 hours of ride time.
+
+It’s also interesting to note that the deviation in weekend ride length times is still present with both members and casual riders, but ride lengths from casual users are averaging 3 minutes longer on weekends while member ride lengths are averaging just 1 minute longer on weekends.
+
+## Monthly Patterns {.tabset}
+
+Next we can see if there are any significant patterns when the data is parsed month-to-month.
+
+### Number of rides
+
+```{r monthly-stats-1, echo = FALSE}
+# creating bar plot for 'Number of rides, month to month'
+ggplot(data = td_Year) +
+  geom_bar(mapping = aes(x = month, fill = month)) +
+  labs(x = "Month", y = "Count", title = "Number of rides by month")
+```
+
+### Number of rides, by user
+
+```{r monthly-stats-2, echo = FALSE}
+# creating bar plot for 'Number of rides, month to month & user'
+ggplot(data = td_Year) +
+  geom_bar(mapping = aes(x = month, fill = month)) +
+  facet_wrap(~member_casual) +
+  labs(x = "Month", y = "Count", title = "Number of rides by month & user")
+```
+
+### Avg ride length
+
+```{r monthly-stats-3, echo = FALSE}
+# calculating average based on month
+td_AvgMo <- td_Year %>%
+  group_by(month) %>% 
+  summarise(mean = round_hms(as_hms(mean(ride_length)), 1))
+
+# creating bar plot for 'Average ride length, month to month'
+ggplot(data = td_AvgMo) +
+  geom_col(mapping = aes(x = month, y = mean, fill = month)) +
+  labs(x = "Month", y = "Avg Ride Length", title = "Avg ride length by month")
+```
+
+### Avg ride length, by user
+
+```{r monthly-stats-4, echo = FALSE}
+# calculating average based on user & month
+td_AvgMM <- td_Year %>%
+  group_by(member_casual, month) %>% 
+  summarise(mean = round_hms(as_hms(mean(ride_length)), 1)) %>% 
+  ungroup()
+
+# creating bar plot for 'Average ride length, month to month & user'
+ggplot(data = td_AvgMM) +
+  geom_col(mapping = aes(x = month, y = mean, fill = month)) +
+  facet_wrap(~member_casual) +
+  labs(x = "Month", y = "Avg Ride Length", title = "Avg ride length by month & user")
+
+```
+
+## {.unlisted .unnumbered}
+
+#### Comments on monthly patterns
+
+Looking at the monthly trip data, it’s apparent the winter months are the least popular for the service (Dec, Jan & Feb). This is expected, given the harsh Chicago weather in winter. We can see users are taking more rides and longer rides in the summer time. When broken down by member status, the bump in popularity during the warmer months is still observable in both categories but for casual riders, the winter months see very little traffic. Calculations indicate that about **13%** of members rides take place in Dec, Jan & Feb, while casual members take just **6.5%** of their rides during these same three winter months. Looking at the warmer months, we can see that members take **36%** of their rides during Jun, Jul & Aug, compared to casual riders who take **46%** of their rides during these same three summer months.
+
+## Bike Type Patterns {.tabset}
+
+Next we can see if there are any significant patterns when the data is parsed by bike type.
+
+### Number of rides {.tabset}
+
+#### No. of rides, all users
+
+```{r bike-type-stats-1, echo = FALSE}
+# calculating freq table based on bike type
+td_Pie2 <- td_Year %>% 
+  tabyl(rideable_type) %>% 
+  adorn_pct_formatting(digits = 2)
+
+# creating pie chart for bike type
+ggplot(data = td_Pie2, aes(x = "", y = n, fill = rideable_type)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  theme_void() +
+  labs(title = "Number of rides by bike type")
+
+# showing numbers behind pie 2
+kable(td_Pie2, caption = "Number of rides by bike type, all users", 
+      col.names = c('Bike Type', 'Count', 'Percent'),
+      format.args = list(big.mark = ","))
+```
+
+#### No. of rides, members
+
+```{r bike-type-stats-2, echo = FALSE}
+# calculating freq table based on bike type, filtered to members
+td_Pie3 <- td_Year %>% 
+  filter(member_casual == 'member') %>% 
+  tabyl(rideable_type) %>% 
+  adorn_pct_formatting(digits = 2)  
+
+# creating pie chart for bike type, filtered to members
+ggplot(data = td_Pie3, aes(x = "", y = n, fill = rideable_type)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  theme_void() +
+#  facet_wrap(~member_casual) +
+  labs(title = "Number of rides by bike type, members")
+
+# showing numbers behind pie 3
+kable(td_Pie3, caption = "Number of rides by bike type, members", 
+      col.names = c('Bike Type', 'Count', 'Percent'),
+      format.args = list(big.mark = ","))
+```
+
+#### No. of rides, casual users
+
+```{r bike-type-stats-3, echo = FALSE}
+# calculating freq table based on bike type, filtered to casual users
+td_Pie4 <- td_Year %>% 
+  filter(member_casual == 'casual') %>% 
+  tabyl(rideable_type) %>% 
+  adorn_pct_formatting(digits = 2)  
+
+# creating pie chart for bike type, filtered to casual users
+ggplot(data = td_Pie4, aes(x = "", y = n, fill = rideable_type)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  theme_void() +
+#  facet_wrap(~member_casual) +
+  labs(title = "Number of rides by bike type, casual users")
+
+# showing numbers behind pie 4
+kable(td_Pie4, caption = "Number of rides by bike type, casual users", 
+      col.names = c('Bike Type', 'Count', 'Percent'),
+      format.args = list(big.mark = ","))
+```
+
+### Avg ride length
+
+```{r bike-type-stats-4, echo = FALSE}
+# calculating average based on bike type
+td_AvgB <- td_Year %>%
+  group_by(rideable_type) %>% 
+  summarise(mean = round_hms(as_hms(mean(ride_length)), 1))
+
+# creating the bar plot for 'Average ride length, bike type'
+ggplot(data = td_AvgB) +
+  geom_col(mapping = aes(x = rideable_type, y = mean, fill = rideable_type)) +
+  labs(x = "Bike Type", y = "Avg Ride Length", title = "Avg ride length by bike type")
+```
+
+### Avg ride length, by user
+
+```{r bike-type-stats-5, echo = FALSE}
+# calculating average based on bike type & user
+td_AvgBM <- td_Year %>%
+  group_by(member_casual, rideable_type) %>% 
+  summarise(mean = round_hms(as_hms(mean(ride_length)), 1)) %>% 
+  ungroup()
+
+# creating the bar plot for 'Average ride length, bike type & user'
+ggplot(data = td_AvgBM) +
+  geom_col(mapping = aes(x = rideable_type, y = mean, fill = rideable_type)) +
+  facet_wrap(~member_casual) +
+  labs(x = "Bike Type", y = "Avg Ride Length", title = "Avg ride length by bike type & user")
+```
+
+## {.unlisted .unnumbered}
+
+#### Comments on bike type patterns
+
+As discussed during the cleaning of the data set, all rows with the *docked_bike* option were previously transformed into the *classic_bike* option, since it is known these are not electric bikes. Given that change to the data, there are only 2 categories for the **rideable_type** field: classic (*i.e.* mechanical) and electric.
+
+The data indicates both bike options were almost equally popular, with *electric_bikes* slightly outnumbering *classic_bikes*. When this data is broken down by membership status, it’s evident *electric_bikes* are slightly more popular with casual users while members tend to use both types of bikes equally. Considering the price point for an *electric_bike* is higher, it’s slightly surprising to see them still used more than *classic_bikes*. It seems riders are willing to the pay the premium for the convenience of an electric bike. Further research reveals that members get 45 minutes of free ride time with classic bikes but electric bikes, while still cheaper with a membership, must be paid for on a per-minute basis from the moment they are undocked. This would explain why classic bikes are just as popular with members although they are losing the comfort of an electric option.
+
+Taking a look at average ride lengths for bike types, it’s seen that *classic_bike* ride time averages are actually slightly above *electric_bike* ride times. This seems initially surprising, given that *electric_bikes* require less effort for transport. However, let’s recall that casual users are charged on a per-minute basis and the *electric_bike* is **144%** more expensive than the *classic_bike* - 44¢/min vs 18¢/min. When this data is parsed out further by membership status, it’s evident how much the casual user population accounts for this discrepancy in ride time lengths.
+
+It’s also worth noting that members also exhibit longer average ride length times with *classic_bikes* than with *electric_bikes*, but only slightly. While members pay the same amount for both bike types (18¢/min), they only get the first 45 minutes of ride time for free with *classic_bikes*. This free-of-charge starter time for *classic_bikes* would account for the discrepancy in average ride lengths in this case.
+
+## Location Patterns {.tabset}
+
+After this analysis, we have an idea of the how and when of marketing to casual bike riders, we can also analyze the where using this data. Let’s look at some of the most popular starting locations, and how those compare to the most popular end stations, as well.
+
+### Start stations, casual users
+
+```{r location-stats-1, echo = FALSE}
+ # freq table of start station filtered to casual users in the summer
+fq_SCs <- td_Year %>% 
+  #filter(ride_length > as_hms("00:00:59") & ride_length < as_hms("24:00:00")) %>% 
+  filter(member_casual == "casual") %>% 
+  filter(month == "Jun" | month == "Jul" | month == "Aug") %>% 
+  tabyl(start_station_name, show_na = FALSE, show_missing_levels = FALSE) %>% 
+  rename(count = n) %>% 
+  adorn_pct_formatting(digits = 2) %>% 
+  arrange(-count) %>% 
+  head(n = 10)
+
+ # freq table of end station filtered to casual users in the summer
+fq_SCe <- td_Year %>% 
+  #filter(ride_length > as_hms("00:00:59") & ride_length < as_hms("24:00:00")) %>% 
+  filter(member_casual == "casual") %>% 
+  filter(month == "Jun" | month == "Jul" | month == "Aug") %>% 
+  tabyl(end_station_name, show_na = FALSE, show_missing_levels = FALSE) %>% 
+  rename(count = n) %>% 
+  adorn_pct_formatting(digits = 2) %>% 
+  arrange(-count) %>% 
+  head(n = 10)
+
+ # view freq table
+kable(fq_SCs, caption = "Most common stating stations for CASUAL USERS", 
+      col.names = c('Start Station Name', 'Count', 'Percent'),
+      format.args = list(big.mark = ","))
+```
+
+### End stations, casual users
+
+```{r location-stats-2, echo = FALSE}
+kable(fq_SCe, caption = "Most common end stations for CASUAL USERS", 
+      col.names = c('End Station Name', 'Count', 'Percent'),
+      format.args = list(big.mark = ","))
+```
+
+## {.unlisted .unnumbered}
+
+# Conclusion
+
+Let’s recap our discoveries:
+
+* Casual users have a longer average trip length than members - 21 minutes vs. 12 minutes
+* A majority of users are taking trips shorter than 20 minutes - 80% of all users
+* Casual users are taking **more rides on weekends** - 36% of all casual trips are on Saturday & Sunday
+* Casual users are taking longer rides on weekends - 3 minutes more on average
+* Casual users are taking **more rides in the summertime** - 46% of all casual trips are during Jun, Jul & Aug
+* Casual users are willing to pay a premium for the convenience of the electric bike
+
+With all this in mind, there are some steps we can take to ensure the success of a marketing campaign. The ride share service sees the most traffic with casual users on Saturday and Sunday. With this taken into account, in addition to the increase usage seen during the summer months, we have target dates for this marketing campaign. There could also be an added incentive for use with electric bikes considering the popularity of these bikes, even with the significant price difference. Lastly, we can focus this campaign to some of the most popular location for casual users.
+
+Most popular locations for casual users (Top 10):
+
+1. Streeter Dr & Grand Ave
+1. DuSable Lake Shore Dr & Monroe St
+1. DuSable Lake Shore Dr & North Blvd
+1. Michigan Ave & Oak St
+1. Millennium Park
+1. Theater on the Lake
+1. Shedd Aquarium
+1. Dusable Harbor
+1. Montrose Harbor
+1. Wells St & Concord Ln
+
