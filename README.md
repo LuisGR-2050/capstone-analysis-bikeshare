@@ -1,0 +1,2 @@
+This R markdown document was created as a capstone project for a [Google Data Analytics Professional Certificate course](https://www.coursera.org/programs/yoloworks-grow-with-google-lnylv/professional-certificates/google-data-analytics) offered online through Coursera.
+The data used in this document is available for free use under [this data license agreement](https://divvybikes.com/data-license-agreement).
