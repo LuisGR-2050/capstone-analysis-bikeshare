@@ -6,12 +6,11 @@ output:
   html_document:
     toc: true
     toc_depth: 3
-    toc_float: true
+    #toc_float: true
     #number_sections: true
     code_folding: show
 ---
 # Introduction
-Built with RStudio v`r getRversion()`
 
 ```{r chunks, include = FALSE}
 knitr::opts_chunk$set(message = FALSE)
@@ -46,12 +45,12 @@ library(knitr)
 
 ## Partial Data Set Analysis
 
-The data set is packaged by individual months, therefore all twelve data sets from January through December must be downloaded to have all of the data from the target year. However, prior to the full download, it would be prudent to analyze an individual file from a single month to become more familiar the features of the data set without having to process the full years' worth of data.
+The data set is packaged by individual months, therefore all twelve data sets from January through December must be downloaded to have all of the data from the target year. However, prior to the full download, it would be prudent to analyze an individual file from a single month to become more familiar the features of the data set without having to process the full years worth of data.
 
 Let’s download the first file and have a peek at the first few lines of data, as well as all of the field names.
 
 ```{r column-names-check}
-td_Jan <- read_csv("csv_files/202301-divvy-tripdata.csv")
+td_Jan <- read_csv("/kaggle/input/2023-divvy-tripdata/202301-divvy-tripdata.csv")
 kable(head(td_Jan))
 colnames(td_Jan)
 ```
@@ -97,12 +96,12 @@ With the CSV files in a local repository and accessible within RStudio, an indiv
 
 ```{r data-frame-creation}
 # 2023 data set creation
-td_Year  <- read_csv(c("csv_files/202301-divvy-tripdata.csv", "csv_files/202302-divvy-tripdata.csv", 
-                       "csv_files/202303-divvy-tripdata.csv", "csv_files/202304-divvy-tripdata.csv", 
-                       "csv_files/202305-divvy-tripdata.csv", "csv_files/202306-divvy-tripdata.csv", 
-                       "csv_files/202307-divvy-tripdata.csv", "csv_files/202308-divvy-tripdata.csv", 
-                       "csv_files/202309-divvy-tripdata.csv", "csv_files/202310-divvy-tripdata.csv", 
-                       "csv_files/202311-divvy-tripdata.csv", "csv_files/202312-divvy-tripdata.csv"))
+td_Year  <- read_csv(c("/kaggle/input/2023-divvy-tripdata/202301-divvy-tripdata.csv",
+                       "/kaggle/input/2023-divvy-tripdata/202302-divvy-tripdata.csv",
+                       "/kaggle/input/2023-divvy-tripdata/202303-divvy-tripdata.csv",
+                       "/kaggle/input/2023-divvy-tripdata/202304-divvy-tripdata.csv",
+                       "/kaggle/input/2023-divvy-tripdata/202305-divvy-tripdata.csv",
+                       "/kaggle/input/2023-divvy-tripdata/202306-divvy-tripdata.csv"))
 # summarize function
 summary(td_Year)
 ```
@@ -157,7 +156,7 @@ The main category we are focusing on is membership status. A reminder that the *
 
 ## Userbase Analysis {.tabset}
 
-Let's start with some basic questions:
+We can start with some basic questions:
 
 * Of all the bike rentals in 2023, how many were from members and how many were from casual riders?
 * What was the average ride length for casual riders? How about members?
@@ -252,7 +251,8 @@ kable(fq_rdC, caption = "Most common trip lengths for CASUAL USERS",
 
 #### Comments on userbase stats
 
-Here we can see members make up a significant portion of all rides – **64%**. This is expected, since members can take advantage of 45 minutes of free ride time with the membership and are already paying for the service. Perhaps more surprisingly, we can also see that the average ride length for a casual rider is **70%** longer when compared to a member (21 minutes for casual users vs 12 minutes for members). Since many of these users are paying on a per-minute basis, it would be expected that members are taking advantage of the lower per-minute prices by taking longer rides. However, this can likely be accounted for when we consider the day pass option for casual users, which provides 3 hours of ride time before having to pay for additional time.
+Here we can see members make up a significant portion of all rides – **64%**. This is expected, since members can take advantage of 45 minutes of free ride time with the membership and are already paying for the service. 
+Perhaps more surprisingly, we can also see that the average ride length for a casual rider is **70%** longer when compared to a member (21 minutes for casual users vs 12 minutes for members). Since many of these users are paying on a per-minute basis, it would be expected that members are taking advantage of the lower per-minute prices by taking longer rides. However, this can likely be accounted for when we consider the day pass option for casual users, which provides 3 hours of ride time before having to pay for additional time.
 
 Based off the histogram and the mean line, it’s apparent most users are taking rides shorter than 20 minutes. Calculations indicate that about **80%** of all trips, including both members and casual users, are less than 20 minutes in length. The vertical lines represent the mean for each group when only accounting for ride length times under 30 minutes - the data represented on the histogram. There’s also an observable gap in the 0-60 second portion of the histogram as a result of the filtering done in the previous step.
  
